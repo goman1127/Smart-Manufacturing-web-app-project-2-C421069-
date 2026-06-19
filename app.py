@@ -49,6 +49,21 @@ else:
             'count': np.random.poisson(lam=5, size=20) # 결점 수
         })
 
+# 데이터 미리보기 및 기초 통계량 창
+with st.expander("📋 업로드된 데이터 미리보기 및 요약 통계", expanded=True):
+    col_df, col_stats = st.columns([2, 1]) # 2:1 비율로 화면 분할
+    
+    with col_df:
+        st.subheader("📄 원본 데이터 테이블")
+        # 스크롤 가능한 대화형 테이블 표시
+        st.dataframe(df, use_container_width=True, height=250)
+        
+    with col_stats:
+        st.subheader("📊 데이터 기초 통계량")
+        # 데이터의 개수, 평균, 표준편차, 사분위수 등 자동 계산 표시
+        st.write(df.describe())
+
+
 # 3. 공정능력분석 로직
 if analysis_type == "공정능력분석 (Capability)":
     st.header("📊 공정능력분석 (Process Capability Analysis)")
@@ -89,7 +104,6 @@ elif analysis_type == "통계적공정관리 (SPC)":
         sg = pd.DataFrame()
         sg['Xbar'] = df.groupby('lot')['value'].mean()
         
-        # 표본 크기가 5라고 가정할 때의 불편화 상수 (실제 환경에서는 동적 계산 필요)
         n = 5 
         a2 = 0.577
         a3 = 1.427
@@ -118,7 +132,6 @@ elif analysis_type == "통계적공정관리 (SPC)":
 
     # --- 계수형 관리도 ---
     elif chart_choice in ["P", "NP", "C", "U"]:
-        # 데이터프레임 구조: 'lot', 'sample_size', 'count'
         total_count = df['count'].sum()
         total_samples = df['sample_size'].sum()
         num_lots = len(df)
@@ -134,7 +147,6 @@ elif analysis_type == "통계적공정관리 (SPC)":
             points = df['count']
             cl_line = np_bar
             
-            # NP는 각 로트별로 LCL/UCL을 계산하거나 평균으로 퉁칠 수 있음. 평균(np_bar) 기준.
             ucl_line = np_bar + 3 * np.sqrt(np_bar * (1 - p_bar))
             lcl_line = max(0, np_bar - 3 * np.sqrt(np_bar * (1 - p_bar)))
             
@@ -146,7 +158,6 @@ elif analysis_type == "통계적공정관리 (SPC)":
             points = df['count'] / df['sample_size']
             cl_line = p_bar
             
-            # P 관리도는 각 로트의 sample_size에 따라 UCL/LCL이 변동함
             ucl_list = p_bar + 3 * np.sqrt((p_bar * (1 - p_bar)) / df['sample_size'])
             lcl_list = np.maximum(0, p_bar - 3 * np.sqrt((p_bar * (1 - p_bar)) / df['sample_size']))
             
@@ -169,7 +180,6 @@ elif analysis_type == "통계적공정관리 (SPC)":
             points = df['count'] / df['sample_size']
             cl_line = u_bar
             
-            # U 관리도도 각 로트의 sample_size에 따라 UCL/LCL이 변동함
             ucl_list = u_bar + 3 * np.sqrt(u_bar / df['sample_size'])
             lcl_list = np.maximum(0, u_bar - 3 * np.sqrt(u_bar / df['sample_size']))
             
@@ -181,4 +191,3 @@ elif analysis_type == "통계적공정관리 (SPC)":
         fig.update_layout(title=f"{chart_choice} Control Chart", xaxis_title="Lot", yaxis_title="Value")
 
     st.plotly_chart(fig, use_container_width=True)
-    st.info("💡 팁: P 관리도나 U 관리도처럼 표본 크기(sample_size)가 매 로트마다 다를 경우, 상하한선(UCL, LCL)이 일직선이 아니라 꺾은선 형태로 나타나는 것이 정상입니다.")
