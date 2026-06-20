@@ -10,7 +10,12 @@ st.set_page_config(page_title="스마트제조 품질관리 대시보드", layou
 st.title("🏭 스마트제조 공정능력 및 SPC 대시보드")
 st.markdown("데이터를 업로드하여 실시간으로 공정능력(Process Capability)과 통계적공정관리(SPC)를 수행하세요.")
 
-# 1. 사이드바 - 분석 유형 및 차트 선택
+# 1. 사이드바 - 규격(USL, LSL) 및 분석 유형 설정
+st.sidebar.header("⚙️ 공정 규격 설정")
+usl = st.sidebar.number_input("USL (규격 상한)", value=11.5)
+lsl = st.sidebar.number_input("LSL (규격 하한)", value=8.5)
+
+st.sidebar.markdown("---")
 analysis_type = st.sidebar.radio("분석 유형 선택", ["공정능력분석 (Capability)", "통계적공정관리 (SPC)"])
 
 chart_choice = None
@@ -18,62 +23,33 @@ if analysis_type == "통계적공정관리 (SPC)":
     chart_choice = st.sidebar.selectbox("관리도 선택", ["Xbar-R", "Xbar-s", "P", "NP", "C", "U"])
 
 # 2. 데이터 업로드 및 더미 데이터 생성
-uploaded_file = st.sidebar.file_uploader("CSV 데이터 파일 업로드", type=['csv'])
+st.sidebar.markdown("---")
+uploaded_file = st.sidebar.file_uploader("CSV 데이터 업로드 (lot, value 열 필수)", type=['csv'])
 
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
     st.sidebar.success("데이터 로드 완료!")
 else:
-    st.info(f"데이터가 없습니다. 현재 '{analysis_type}' 테스트용 더미 데이터로 작동 중입니다.")
+    st.info("데이터가 없습니다. 테스트용 더미 데이터가 적용되었습니다.")
     np.random.seed(42)
-    
-    # 선택된 차트/분석에 따라 적절한 더미 데이터 생성
-    if analysis_type == "공정능력분석 (Capability)" or chart_choice in ["Xbar-R", "Xbar-s"]:
-        # 계량형 데이터 (로트당 5개 표본)
-        df = pd.DataFrame({
-            'lot': np.repeat(np.arange(1, 21), 5),
-            'value': np.random.normal(10, 1, 100)
-        })
-    elif chart_choice in ["P", "NP"]:
-        # 불량률/불량수 데이터 (로트별 표본 크기와 불량품 수)
-        df = pd.DataFrame({
-            'lot': np.arange(1, 21),
-            'sample_size': np.random.randint(190, 210, 20),
-            'count': np.random.binomial(n=200, p=0.05, size=20) # 불량품 수
-        })
-    elif chart_choice in ["C", "U"]:
-        # 결점수 데이터 
-        df = pd.DataFrame({
-            'lot': np.arange(1, 21),
-            'sample_size': np.random.randint(90, 110, 20),
-            'count': np.random.poisson(lam=5, size=20) # 결점 수
-        })
+    # lot과 value만 있는 100개의 테스트 데이터 (15번 로트에 의도적 이상치 포함)
+    lots = np.repeat(np.arange(1, 21), 5)
+    values = np.random.normal(10.0, 0.5, 100)
+    values[72] = 13.8 # 의도적 이상치
+    df = pd.DataFrame({'lot': lots, 'value': values})
 
-# 데이터 미리보기 및 기초 통계량 창
-with st.expander("📋 업로드된 데이터 미리보기 및 요약 통계", expanded=True):
-    col_df, col_stats = st.columns([2, 1]) # 2:1 비율로 화면 분할
-    
+# 🌟 데이터 미리보기 (lot, value)
+with st.expander("📋 업로드된 데이터 및 기초 통계량 (단일 소스)", expanded=True):
+    col_df, col_stats = st.columns([2, 1])
     with col_df:
-        st.subheader("📄 원본 데이터 테이블")
-        # 스크롤 가능한 대화형 테이블 표시
-        st.dataframe(df, use_container_width=True, height=250)
-        
+        st.dataframe(df, use_container_width=True, height=200)
     with col_stats:
-        st.subheader("📊 데이터 기초 통계량")
-        # 데이터의 개수, 평균, 표준편차, 사분위수 등 자동 계산 표시
         st.write(df.describe())
-
 
 # 3. 공정능력분석 로직
 if analysis_type == "공정능력분석 (Capability)":
     st.header("📊 공정능력분석 (Process Capability Analysis)")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        usl = st.number_input("USL (규격 상한)", value=13.0)
-    with col2:
-        lsl = st.number_input("LSL (규격 하한)", value=7.0)
-        
     stat, p = shapiro(df['value'])
     normality = "만족" if p > 0.05 else "불만족"
     st.write(f"**Shapiro-Wilk 정규성 검정**: p-value = {p:.4f} ({normality})")
@@ -96,15 +72,14 @@ if analysis_type == "공정능력분석 (Capability)":
 # 4. 통계적공정관리(SPC) 로직
 elif analysis_type == "통계적공정관리 (SPC)":
     st.header(f"📈 통계적공정관리 - {chart_choice} 관리도")
-    
     fig = go.Figure()
 
-    # --- 계량형 관리도 ---
+    # --- 계량형 관리도 (연속형 데이터 그대로 사용) ---
     if chart_choice in ["Xbar-R", "Xbar-s"]:
         sg = pd.DataFrame()
         sg['Xbar'] = df.groupby('lot')['value'].mean()
         
-        n = 5 
+        n = 5 # 부분군 크기 (과제용 고정)
         a2 = 0.577
         a3 = 1.427
         
@@ -112,7 +87,6 @@ elif analysis_type == "통계적공정관리 (SPC)":
             sg['R'] = df.groupby('lot')['value'].max() - df.groupby('lot')['value'].min()
             r_bar = sg['R'].mean()
             x_bar_bar = sg['Xbar'].mean()
-            
             ucl = x_bar_bar + a2 * r_bar
             lcl = x_bar_bar - a2 * r_bar
             
@@ -120,7 +94,6 @@ elif analysis_type == "통계적공정관리 (SPC)":
             sg['s'] = df.groupby('lot')['value'].std(ddof=1)
             s_bar = sg['s'].mean()
             x_bar_bar = sg['Xbar'].mean()
-            
             ucl = x_bar_bar + a3 * s_bar
             lcl = x_bar_bar - a3 * s_bar
             
@@ -130,64 +103,74 @@ elif analysis_type == "통계적공정관리 (SPC)":
         fig.add_hline(y=lcl, line_dash="dash", line_color="red", annotation_text="LCL")
         fig.update_layout(title=f"{chart_choice} Control Chart", xaxis_title="Lot", yaxis_title="Mean")
 
-    # --- 계수형 관리도 ---
+    # --- 계수형 관리도 (USL/LSL 기반 자동 불량 판정 및 집계) ---
     elif chart_choice in ["P", "NP", "C", "U"]:
-        total_count = df['count'].sum()
-        total_samples = df['sample_size'].sum()
-        num_lots = len(df)
+        # 1. 로트별 표본 크기 계산
+        sample_sizes = df.groupby('lot')['value'].count()
+        
+        # 2. USL을 초과하거나 LSL 미만인 데이터를 '불량'으로 판정하여 개수 집계
+        is_defect = (df['value'] > usl) | (df['value'] < lsl)
+        defects = df[is_defect].groupby('lot')['value'].count()
+        
+        # 3. 불량이 없는 로트는 누락되므로 0으로 채움
+        defects = defects.reindex(sample_sizes.index, fill_value=0)
+        
+        # 4. 계수형 연산을 위한 데이터프레임 조립
+        attr_df = pd.DataFrame({
+            'lot': sample_sizes.index,
+            'sample_size': sample_sizes.values,
+            'defects': defects.values
+        })
+        
+        total_defects = attr_df['defects'].sum()
+        total_samples = attr_df['sample_size'].sum()
+        num_lots = len(attr_df)
         
         points = []
-        ucl_list = []
-        lcl_list = []
+        ucl_list, lcl_list = [], []
         cl_line = 0
 
         if chart_choice == "NP":
-            p_bar = total_count / total_samples
-            np_bar = df['count'].sum() / num_lots
-            points = df['count']
+            p_bar = total_defects / total_samples
+            np_bar = total_defects / num_lots
+            points = attr_df['defects']
             cl_line = np_bar
-            
             ucl_line = np_bar + 3 * np.sqrt(np_bar * (1 - p_bar))
             lcl_line = max(0, np_bar - 3 * np.sqrt(np_bar * (1 - p_bar)))
-            
             fig.add_hline(y=ucl_line, line_dash="dash", line_color="red", annotation_text="UCL")
             fig.add_hline(y=lcl_line, line_dash="dash", line_color="red", annotation_text="LCL")
 
         elif chart_choice == "P":
-            p_bar = total_count / total_samples
-            points = df['count'] / df['sample_size']
+            p_bar = total_defects / total_samples
+            points = attr_df['defects'] / attr_df['sample_size']
             cl_line = p_bar
-            
-            ucl_list = p_bar + 3 * np.sqrt((p_bar * (1 - p_bar)) / df['sample_size'])
-            lcl_list = np.maximum(0, p_bar - 3 * np.sqrt((p_bar * (1 - p_bar)) / df['sample_size']))
-            
-            fig.add_trace(go.Scatter(x=df['lot'], y=ucl_list, mode='lines', line=dict(color='red', dash='dot'), name='UCL'))
-            fig.add_trace(go.Scatter(x=df['lot'], y=lcl_list, mode='lines', line=dict(color='red', dash='dot'), name='LCL'))
+            ucl_list = p_bar + 3 * np.sqrt((p_bar * (1 - p_bar)) / attr_df['sample_size'])
+            lcl_list = np.maximum(0, p_bar - 3 * np.sqrt((p_bar * (1 - p_bar)) / attr_df['sample_size']))
+            fig.add_trace(go.Scatter(x=attr_df['lot'], y=ucl_list, mode='lines', line=dict(color='red', dash='dot'), name='UCL'))
+            fig.add_trace(go.Scatter(x=attr_df['lot'], y=lcl_list, mode='lines', line=dict(color='red', dash='dot'), name='LCL'))
 
         elif chart_choice == "C":
-            c_bar = df['count'].mean()
-            points = df['count']
+            c_bar = attr_df['defects'].mean()
+            points = attr_df['defects']
             cl_line = c_bar
-            
             ucl_line = c_bar + 3 * np.sqrt(c_bar)
             lcl_line = max(0, c_bar - 3 * np.sqrt(c_bar))
-            
             fig.add_hline(y=ucl_line, line_dash="dash", line_color="red", annotation_text="UCL")
             fig.add_hline(y=lcl_line, line_dash="dash", line_color="red", annotation_text="LCL")
 
         elif chart_choice == "U":
-            u_bar = total_count / total_samples
-            points = df['count'] / df['sample_size']
+            u_bar = total_defects / total_samples
+            points = attr_df['defects'] / attr_df['sample_size']
             cl_line = u_bar
+            ucl_list = u_bar + 3 * np.sqrt(u_bar / attr_df['sample_size'])
+            lcl_list = np.maximum(0, u_bar - 3 * np.sqrt(u_bar / attr_df['sample_size']))
+            fig.add_trace(go.Scatter(x=attr_df['lot'], y=ucl_list, mode='lines', line=dict(color='red', dash='dot'), name='UCL'))
+            fig.add_trace(go.Scatter(x=attr_df['lot'], y=lcl_list, mode='lines', line=dict(color='red', dash='dot'), name='LCL'))
             
-            ucl_list = u_bar + 3 * np.sqrt(u_bar / df['sample_size'])
-            lcl_list = np.maximum(0, u_bar - 3 * np.sqrt(u_bar / df['sample_size']))
-            
-            fig.add_trace(go.Scatter(x=df['lot'], y=ucl_list, mode='lines', line=dict(color='red', dash='dot'), name='UCL'))
-            fig.add_trace(go.Scatter(x=df['lot'], y=lcl_list, mode='lines', line=dict(color='red', dash='dot'), name='LCL'))
-            
-        fig.add_trace(go.Scatter(x=df['lot'], y=points, mode='lines+markers', name='Data Points'))
+        fig.add_trace(go.Scatter(x=attr_df['lot'], y=points, mode='lines+markers', name='Defects/Rate'))
         fig.add_hline(y=cl_line, line_dash="dash", line_color="green", annotation_text="CL")
-        fig.update_layout(title=f"{chart_choice} Control Chart", xaxis_title="Lot", yaxis_title="Value")
+        fig.update_layout(title=f"{chart_choice} Control Chart (Derived from USL/LSL)", xaxis_title="Lot", yaxis_title="Defects / Rate")
+        
+        st.info("💡 작동 원리: 원본 데이터(`value`)가 사이드바에 설정된 USL을 초과하거나 LSL 미만일 경우 자동으로 '불량'으로 판정하여 계수형 관리도를 그렸습니다.")
 
     st.plotly_chart(fig, use_container_width=True)
