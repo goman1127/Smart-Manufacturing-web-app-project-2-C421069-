@@ -171,6 +171,5 @@ elif analysis_type == "통계적공정관리 (SPC)":
         fig.add_hline(y=cl_line, line_dash="dash", line_color="green", annotation_text="CL")
         fig.update_layout(title=f"{chart_choice} Control Chart (Derived from USL/LSL)", xaxis_title="Lot", yaxis_title="Defects / Rate")
         
-        st.info("💡 작동 원리: 원본 데이터(`value`)가 사이드바에 설정된 USL을 초과하거나 LSL 미만일 경우 자동으로 '불량'으로 판정하여 계수형 관리도를 그렸습니다.")
 
     st.plotly_chart(fig, use_container_width=True)
